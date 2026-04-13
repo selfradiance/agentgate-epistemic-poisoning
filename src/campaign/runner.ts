@@ -19,7 +19,9 @@ import { DocumentStore } from '../kb/store.js';
 import { formatKB } from '../kb/formatter.js';
 import { APPLICANT_SCENARIOS, getKBForScenario } from '../kb/seed-data.js';
 import { computeOracle } from '../oracle/oracle.js';
-import { runTarget } from '../agents/target/target.js';
+import { runTarget, runTargetWithTrace } from '../agents/target/target.js';
+import { TraceCollector } from '../trace/collector.js';
+import { writeRoundTrace } from '../trace/writer.js';
 import { generateMutations } from '../agents/saboteur/saboteur.js';
 import { evaluate } from '../eval/evaluator.js';
 import { TargetDecision } from '../agents/target/types.js';
@@ -110,6 +112,7 @@ async function runRound(
   config: CampaignConfig,
   feedback: SaboteurFeedback | null,
   agentgate: AgentGateClient | null,
+  campaignId: string,
   onProgress?: ProgressCallback,
 ): Promise<RoundResult> {
   const startTime = Date.now();
@@ -128,6 +131,9 @@ async function runRound(
   const scenarioIdx = config.scenarioIndex ?? ((roundNumber - 1) % APPLICANT_SCENARIOS.length);
   const scenario = APPLICANT_SCENARIOS[scenarioIdx];
 
+  // Initialize trace collector
+  const trace = new TraceCollector(roundId, roundNumber, scenario.id);
+
   // Step 3: Reset KB to clean state
   const store = new DocumentStore();
   store.load(getKBForScenario(scenario));
@@ -135,6 +141,7 @@ async function runRound(
 
   // Step 4: Saboteur poisons
   progress('saboteur');
+  const saboteurStart = new Date();
   const cleanKB = formatKB(store.getAllFragments());
   let mutations: Mutation[];
   try {
@@ -146,10 +153,13 @@ async function runRound(
   } catch (err) {
     return makeErrorResult(roundId, roundNumber, scenario.id, startTime, 'Saboteur failed: ' + String(err));
   }
+  trace.recordPhase('saboteur', saboteurStart, Date.now() - saboteurStart.getTime());
 
   if (mutations.length === 0) {
     return makeErrorResult(roundId, roundNumber, scenario.id, startTime, 'Saboteur produced 0 mutations');
   }
+
+  trace.recordMutations(mutations);
 
   // Apply mutations to get poisoned KB
   const cleanSnap = store.snapshot();
@@ -165,32 +175,59 @@ async function runRound(
 
   // Step 5: Target decides on clean KB x N
   progress('target-clean');
+  const cleanStart = new Date();
   store.restore(cleanSnap);
   const cleanKBForTarget = formatKB(store.getAllFragments());
   const cleanDecisions: TargetDecision[] = [];
   for (let i = 0; i < config.runsPerCondition; i++) {
     try {
-      const d = await runTarget(cleanKBForTarget);
-      cleanDecisions.push(d);
+      const result = await runTargetWithTrace(cleanKBForTarget);
+      cleanDecisions.push(result.decision);
+      trace.addTranscript({
+        role: 'target',
+        promptVersion: '1.0.0',
+        prompt: result.prompt.slice(0, 500) + '...',
+        responseBlocks: result.responseBlocks,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        durationMs: result.durationMs,
+      });
     } catch (err) {
       return makeErrorResult(roundId, roundNumber, scenario.id, startTime, `Target clean run ${i + 1} failed: ${err}`);
     }
   }
+  trace.recordPhase('target-clean', cleanStart, Date.now() - cleanStart.getTime());
+  trace.recordCitations(cleanDecisions, 'clean', poisonedFragmentIds);
 
   // Step 6: Target decides on poisoned KB x N
   progress('target-poisoned');
+  const poisonedStart = new Date();
   const poisonedDecisions: TargetDecision[] = [];
   for (let i = 0; i < config.runsPerCondition; i++) {
     try {
-      const d = await runTarget(poisonedKB);
-      poisonedDecisions.push(d);
+      const result = await runTargetWithTrace(poisonedKB);
+      poisonedDecisions.push(result.decision);
+      trace.addTranscript({
+        role: 'target',
+        promptVersion: '1.0.0',
+        prompt: result.prompt.slice(0, 500) + '...',
+        responseBlocks: result.responseBlocks,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        durationMs: result.durationMs,
+      });
     } catch (err) {
       return makeErrorResult(roundId, roundNumber, scenario.id, startTime, `Target poisoned run ${i + 1} failed: ${err}`);
     }
   }
+  trace.recordPhase('target-poisoned', poisonedStart, Date.now() - poisonedStart.getTime());
+  trace.recordCitations(poisonedDecisions, 'poisoned', poisonedFragmentIds);
 
   // Step 7: Evaluator
   progress('evaluator');
+  const evalStart = new Date();
   const evaluation = evaluate({
     cleanDecisions,
     poisonedDecisions,
@@ -198,6 +235,8 @@ async function runRound(
     mutations,
     poisonedFragmentIds,
   });
+  trace.recordPhase('evaluator', evalStart, Date.now() - evalStart.getTime());
+  trace.recordAttributions(evaluation);
 
   // Step 8: Resolver settles bonds/actions
   progress('resolver');
@@ -279,6 +318,10 @@ async function runRound(
       console.error(`  AgentGate error in ${roundId}: ${err}`);
     }
   }
+
+  // Step 9: Write trace artifacts
+  trace.recordPhase('resolver', new Date(), 0);
+  writeRoundTrace(campaignId, trace.build());
 
   // Map evaluator round status to campaign round status
   const status: CampaignRoundStatus = evaluation.round_status;
@@ -406,7 +449,7 @@ export async function runCampaign(
   }
 
   for (let i = startRound; i <= config.rounds; i++) {
-    const result = await runRound(i, config, feedback, agentgate, onProgress);
+    const result = await runRound(i, config, feedback, agentgate, campaignId, onProgress);
     rounds.push(result);
 
     // Step 10: Build feedback for next round

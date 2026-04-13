@@ -38,12 +38,31 @@ Analyze the applicant against the policy. Submit your decision using the submit_
 // Target agent — runs Claude with Tool Use, temperature 0
 // ============================================================
 
+export interface TargetRunResult {
+  decision: TargetDecision;
+  prompt: string;
+  responseBlocks: Array<{ type: string; content: string }>;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+}
+
 export async function runTarget(
   kb: string,
   client?: Anthropic,
 ): Promise<TargetDecision> {
+  const result = await runTargetWithTrace(kb, client);
+  return result.decision;
+}
+
+export async function runTargetWithTrace(
+  kb: string,
+  client?: Anthropic,
+): Promise<TargetRunResult> {
   const anthropic = client ?? defaultClient;
   const prompt = buildTargetPrompt(kb);
+  const startTime = Date.now();
 
   const response = await anthropic.messages.create({
     model: MODEL,
@@ -53,6 +72,8 @@ export async function runTarget(
     tool_choice: { type: 'tool', name: 'submit_decision' },
     messages: [{ role: 'user', content: prompt }],
   });
+
+  const durationMs = Date.now() - startTime;
 
   const toolBlock = response.content.find((b) => b.type === 'tool_use');
   if (!toolBlock || toolBlock.type !== 'tool_use') {
@@ -64,5 +85,18 @@ export async function runTarget(
     throw new Error(`Target output failed Zod validation: ${parsed.error.message}`);
   }
 
-  return parsed.data;
+  const responseBlocks = response.content.map((b) => ({
+    type: b.type,
+    content: b.type === 'tool_use' ? JSON.stringify(b.input) : b.type === 'text' ? b.text : '',
+  }));
+
+  return {
+    decision: parsed.data,
+    prompt,
+    responseBlocks,
+    model: MODEL,
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    durationMs,
+  };
 }
