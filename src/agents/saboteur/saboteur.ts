@@ -125,7 +125,8 @@ export async function generateMutation(
       String(raw.mutated_text ?? ''),
     );
 
-    const withHash = { ...raw, diff_hash: diffHash };
+    // Normalize mutation_class to taxonomy ID (LLM may return display name)
+    const withHash = { ...raw, diff_hash: diffHash, mutation_class: category };
 
     const parsed = MutationSchema.safeParse(withHash);
     if (!parsed.success) {
