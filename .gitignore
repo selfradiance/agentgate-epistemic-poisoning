@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Build artifacts
+dist/
+*.js.map
+*.d.ts
+
+# Logs
+logs/
+
+# Project context files (contain private info)
+*_PROJECT_CONTEXT.md
+
+# Identity files
+agent-identity*.json
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

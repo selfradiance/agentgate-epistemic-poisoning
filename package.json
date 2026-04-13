@@ -1,0 +1,26 @@
+{
+  "name": "epistemic-poisoning-simulator",
+  "version": "0.1.0",
+  "description": "A CLI simulation where a saboteur agent corrupts shared knowledge to test AgentGate's bond-and-slash model for knowledge integrity governance",
+  "scripts": {
+    "test": "vitest run",
+    "start": "tsx src/cli.ts"
+  },
+  "keywords": [],
+  "author": "James Toole",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.88.0",
+    "dotenv": "17.3.1",
+    "zod": "4.3.6"
+  }
+}
