@@ -41,6 +41,14 @@ function getProbabilityOfDefault(riskScore: number): number {
 // ============================================================
 
 export function computeOracle(applicant: ApplicantData): OracleOutput {
+  // Guard against zero-division in DTI and collateral gap calculations
+  if (applicant.annual_revenue <= 0) {
+    throw new Error(`Invalid annual_revenue (${applicant.annual_revenue}): must be positive`);
+  }
+  if (applicant.loan_amount <= 0) {
+    throw new Error(`Invalid loan_amount (${applicant.loan_amount}): must be positive`);
+  }
+
   const rulesApplied: string[] = [];
 
   // Step 1: Eligibility checks

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { computeSummary } from '../src/campaign/runner.js';
+import { computeSummary, runCampaign } from '../src/campaign/runner.js';
 import { writeCampaignLog, writeCheckpoint, loadCheckpoint, formatSummary } from '../src/campaign/logger.js';
 import {
   CampaignConfig,
@@ -169,6 +169,19 @@ describe('computeSummary', () => {
     expect(summary.invalidRounds).toBe(1);
   });
 
+  it('only counts status=valid rounds in poisoning-effectiveness metrics', () => {
+    const rounds = [
+      makeRoundResult(1, { status: 'valid' }),
+      makeRoundResult(2, { status: 'baseline_error' }),
+      makeRoundResult(3, { status: 'poisoned_unstable' }),
+    ];
+
+    const summary = computeSummary(rounds);
+
+    expect(summary.validRounds).toBe(1);
+    expect(summary.decisionFlipRate).toBe(1);
+  });
+
   it('aggregates attribution breakdown', () => {
     const rounds = [
       makeRoundResult(1, {
@@ -261,6 +274,32 @@ describe('checkpoint', () => {
     const loaded = loadCheckpoint('/tmp/nonexistent-checkpoint.json');
     expect(loaded).toBeNull();
   });
+
+  it('returns null for malformed checkpoint contents', () => {
+    fs.writeFileSync(tmpPath, JSON.stringify({ campaignId: 'bad', nextRound: 'oops' }), 'utf8');
+    const loaded = loadCheckpoint(tmpPath);
+    expect(loaded).toBeNull();
+    fs.unlinkSync(tmpPath);
+  });
+
+  it('preserves campaignId when resuming from a completed checkpoint', async () => {
+    const checkpoint: CampaignCheckpoint = {
+      campaignId: 'campaign_resume',
+      config: { ...DEFAULT_CONFIG, rounds: 1 },
+      completedRounds: [makeRoundResult(1)],
+      lastFeedback: null,
+      nextRound: 2,
+    };
+
+    writeCheckpoint(tmpPath, checkpoint);
+
+    const result = await runCampaign({ ...DEFAULT_CONFIG, rounds: 1 }, null, undefined, tmpPath);
+
+    expect(result.campaignId).toBe('campaign_resume');
+    expect(result.rounds).toHaveLength(1);
+
+    fs.unlinkSync(tmpPath);
+  });
 });
 
 // ============================================================
@@ -275,6 +314,7 @@ describe('formatSummary', () => {
       baselineUnstableRounds: 1,
       poisonedUnstableRounds: 0,
       baselineErrorRounds: 0,
+      poisonTooObviousRounds: 0,
       invalidRounds: 0,
       decisionFlipRate: 0.75,
       meanRiskScoreDelta: 0.15,
@@ -287,8 +327,10 @@ describe('formatSummary', () => {
       },
       bondOutcomes: {
         saboteurMalicious: 3,
+        saboteurFailed: 0,
         saboteurSuccess: 2,
         targetMalicious: 1,
+        targetFailed: 0,
         targetSuccess: 4,
       },
     };

@@ -43,14 +43,36 @@ export class DocumentStore {
     return this.getAllFragments().filter((f) => f.doc_id === docId);
   }
 
-  applyMutation(fragmentId: string, mutatedText: string, mutationClass: string): void {
+  applyMutation(
+    fragmentId: string,
+    originalText: string,
+    mutatedText: string,
+    mutationClass: string,
+  ): void {
     const fragment = this.fragments.get(fragmentId);
     if (!fragment) {
       throw new Error(`Fragment not found: ${fragmentId}`);
     }
 
-    fragment.current_text = mutatedText;
-    fragment.hash = computeHash(mutatedText);
+    if (originalText.length === 0) {
+      throw new Error(`Original text must not be empty for fragment: ${fragmentId}`);
+    }
+
+    // Note: indexOf matches the FIRST occurrence. If the same substring appears
+    // multiple times, only the first is replaced. This is intentional — saboteur
+    // mutations should target unique substrings for precise provenance.
+    const matchIndex = fragment.current_text.indexOf(originalText);
+    if (matchIndex === -1) {
+      throw new Error(`Original text not found in fragment: ${fragmentId}`);
+    }
+
+    const nextText =
+      fragment.current_text.slice(0, matchIndex) +
+      mutatedText +
+      fragment.current_text.slice(matchIndex + originalText.length);
+
+    fragment.current_text = nextText;
+    fragment.hash = computeHash(nextText);
     fragment.is_poisoned = true;
     fragment.mutation_class = mutationClass;
   }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AgentGateClient } from '../src/agentgate/client.js';
@@ -43,6 +43,34 @@ describe('signing', () => {
     const sig1 = signRequest(publicKey, privateKey, 'nonce', 'POST', '/test', '11111', body);
     const sig2 = signRequest(publicKey, privateKey, 'nonce', 'POST', '/test', '22222', body);
     expect(sig1).not.toBe(sig2);
+  });
+
+  it('does not retry a signed POST after a successful response with invalid JSON', async () => {
+    const { publicKey, privateKey } = generateKeyPair();
+    const client = new AgentGateClient('http://127.0.0.1:3000', 'testkey123');
+    const identity = {
+      identityId: 'id_test',
+      publicKey,
+      privateKey,
+    };
+
+    const fetchMock = vi.fn(async () =>
+      new Response('{', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      await expect(
+        (client as any).signedPost(identity, '/v1/test', { ok: true }),
+      ).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

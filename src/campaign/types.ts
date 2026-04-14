@@ -41,6 +41,7 @@ export type CampaignRoundStatus =
   | 'baseline_unstable'
   | 'poisoned_unstable'
   | 'baseline_error'
+  | 'poison_too_obvious'
   | 'invalid_round'
   | 'aborted';
 
@@ -76,6 +77,7 @@ export interface CampaignSummary {
   baselineUnstableRounds: number;
   poisonedUnstableRounds: number;
   baselineErrorRounds: number;
+  poisonTooObviousRounds: number;
   invalidRounds: number;
   decisionFlipRate: number;
   meanRiskScoreDelta: number;
@@ -88,8 +90,10 @@ export interface CampaignSummary {
   };
   bondOutcomes: {
     saboteurMalicious: number;
+    saboteurFailed: number;
     saboteurSuccess: number;
     targetMalicious: number;
+    targetFailed: number;
     targetSuccess: number;
   };
 }

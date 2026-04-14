@@ -247,19 +247,23 @@ describe.skipIf(!HAS_API_KEY)('SIGN OF LIFE — full round end-to-end', () => {
     console.log(`  Generated ${mutations.length} mutations: ${mutations.map((m) => m.mutation_class).join(', ')}`);
 
     // Apply mutations to KB
+    const appliedMutations = [];
     for (const m of mutations) {
       try {
-        store.applyMutation(m.fragment_id, m.mutated_text, m.mutation_class);
+        store.applyMutation(
+          m.fragment_id,
+          m.original_text,
+          m.mutated_text,
+          m.mutation_class,
+        );
+        appliedMutations.push(m);
       } catch {
-        // Fragment text substitution — apply as full replacement
-        const frag = store.getFragment(m.fragment_id);
-        if (frag) {
-          store.applyMutation(m.fragment_id, m.mutated_text, m.mutation_class);
-        }
+        // Skip invalid LLM output the same way the runner does.
       }
     }
+    expect(appliedMutations.length).toBeGreaterThan(0);
     const poisonedKB = formatKB(store.getAllFragments());
-    const poisonedFragmentIds = mutations.map((m) => m.fragment_id);
+    const poisonedFragmentIds = appliedMutations.map((m) => m.fragment_id);
 
     // Run target on clean KB (2 runs for speed)
     console.log('  Running target on clean KB (2 runs)...');
@@ -286,7 +290,7 @@ describe.skipIf(!HAS_API_KEY)('SIGN OF LIFE — full round end-to-end', () => {
       cleanDecisions,
       poisonedDecisions,
       oracleOutput: oracle,
-      mutations,
+      mutations: appliedMutations,
       poisonedFragmentIds,
     });
 
@@ -303,7 +307,7 @@ describe.skipIf(!HAS_API_KEY)('SIGN OF LIFE — full round end-to-end', () => {
     // Basic sanity checks
     expect(result.stability).toBeDefined();
     expect(result.metrics).toBeDefined();
-    expect(result.attributions).toHaveLength(mutations.length);
+    expect(result.attributions).toHaveLength(appliedMutations.length);
     expect(result.round_status).toBeDefined();
     expect(['valid', 'baseline_unstable', 'poisoned_unstable', 'baseline_error']).toContain(result.round_status);
   }, 300_000);

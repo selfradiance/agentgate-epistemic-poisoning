@@ -13,10 +13,11 @@ function getClient(): Anthropic {
 
 export const MODEL = 'claude-sonnet-4-20250514';
 
-// Default export is a proxy that lazily creates the client on first property access
-const client = new Proxy({} as Anthropic, {
-  get(_target, prop) {
-    return (getClient() as unknown as Record<string | symbol, unknown>)[prop];
+// Default export is a proxy that lazily creates the client on first property access.
+// Uses Reflect.get for type-safe property delegation.
+const client: Anthropic = new Proxy({} as Anthropic, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getClient(), prop, receiver);
   },
 });
 

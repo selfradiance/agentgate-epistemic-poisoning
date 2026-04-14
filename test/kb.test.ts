@@ -70,25 +70,31 @@ describe('DocumentStore', () => {
   });
 
   describe('applyMutation', () => {
-    it('marks fragment as poisoned with correct metadata', () => {
-      store.applyMutation('doc_a_f1', 'Poisoned text', 'numerical_drift');
+    it('replaces the requested substring and marks fragment as poisoned', () => {
+      store.applyMutation('doc_a_f1', 'First', 'Poisoned', 'numerical_drift');
       const f = store.getFragment('doc_a_f1')!;
-      expect(f.current_text).toBe('Poisoned text');
+      expect(f.current_text).toBe('Poisoned fragment');
       expect(f.original_text).toBe('First fragment');
       expect(f.is_poisoned).toBe(true);
       expect(f.mutation_class).toBe('numerical_drift');
-      expect(f.hash).toBe(computeHash('Poisoned text'));
+      expect(f.hash).toBe(computeHash('Poisoned fragment'));
     });
 
     it('throws for unknown fragment ID', () => {
-      expect(() => store.applyMutation('bad_id', 'text', 'drift')).toThrow('Fragment not found');
+      expect(() => store.applyMutation('bad_id', 'text', 'mutated', 'drift')).toThrow('Fragment not found');
+    });
+
+    it('throws when original text is not present in the fragment', () => {
+      expect(() => store.applyMutation('doc_a_f1', 'missing text', 'mutated', 'drift')).toThrow(
+        'Original text not found',
+      );
     });
   });
 
   describe('snapshot and restore', () => {
     it('creates an independent snapshot', () => {
       const snap = store.snapshot();
-      store.applyMutation('doc_a_f1', 'Changed', 'injection');
+      store.applyMutation('doc_a_f1', 'First fragment', 'Changed', 'injection');
 
       // Snapshot should be unaffected
       const snapFragment = snap.fragments.find((f) => f.fragment_id === 'doc_a_f1')!;
@@ -101,8 +107,8 @@ describe('DocumentStore', () => {
 
     it('restores to a previous snapshot', () => {
       const snap = store.snapshot();
-      store.applyMutation('doc_a_f1', 'Changed', 'injection');
-      store.applyMutation('doc_b_f1', 'Also changed', 'omission');
+      store.applyMutation('doc_a_f1', 'First fragment', 'Changed', 'injection');
+      store.applyMutation('doc_b_f1', 'Another doc', 'Also changed', 'omission');
 
       store.restore(snap);
 
@@ -118,8 +124,8 @@ describe('DocumentStore', () => {
     });
 
     it('returns all poisoned fragments', () => {
-      store.applyMutation('doc_a_f1', 'Changed 1', 'drift');
-      store.applyMutation('doc_b_f1', 'Changed 2', 'omission');
+      store.applyMutation('doc_a_f1', 'First fragment', 'Changed 1', 'drift');
+      store.applyMutation('doc_b_f1', 'Another doc', 'Changed 2', 'omission');
 
       const diffs = store.diff();
       expect(diffs).toHaveLength(2);
@@ -131,8 +137,8 @@ describe('DocumentStore', () => {
 
   describe('reset', () => {
     it('restores all fragments to original state', () => {
-      store.applyMutation('doc_a_f1', 'Changed', 'injection');
-      store.applyMutation('doc_b_f1', 'Also changed', 'omission');
+      store.applyMutation('doc_a_f1', 'First fragment', 'Changed', 'injection');
+      store.applyMutation('doc_b_f1', 'Another doc', 'Also changed', 'omission');
 
       store.reset();
 
@@ -171,7 +177,7 @@ describe('formatKB', () => {
   it('uses current_text, not original_text', () => {
     const store = new DocumentStore();
     store.load([{ doc_id: 'doc', fragment_id: 'doc_f1', text: 'Original' }]);
-    store.applyMutation('doc_f1', 'Poisoned', 'drift');
+    store.applyMutation('doc_f1', 'Original', 'Poisoned', 'drift');
 
     const output = formatKB(store.getAllFragments());
     expect(output).toContain('Poisoned');

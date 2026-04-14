@@ -49,6 +49,25 @@ const { values } = parseArgs({
 // Build config
 // ============================================================
 
+function parsePositiveIntFlag(
+  value: string,
+  flag: string,
+  options: { min?: number; max?: number } = {},
+): number {
+  const min = options.min ?? 1;
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(parsed) || parsed < min) {
+    throw new Error(`${flag} must be an integer greater than or equal to ${min}`);
+  }
+
+  if (options.max !== undefined && parsed > options.max) {
+    throw new Error(`${flag} must be an integer less than or equal to ${options.max}`);
+  }
+
+  return parsed;
+}
+
 function buildConfig(): CampaignConfig {
   const config = { ...DEFAULT_CONFIG };
 
@@ -62,13 +81,16 @@ function buildConfig(): CampaignConfig {
 
   // Explicit flags override presets
   if (values.rounds) {
-    config.rounds = parseInt(values.rounds, 10);
+    config.rounds = parsePositiveIntFlag(values.rounds, '--rounds');
   }
   if (values['runs-per-condition']) {
-    config.runsPerCondition = parseInt(values['runs-per-condition'], 10);
+    config.runsPerCondition = parsePositiveIntFlag(
+      values['runs-per-condition'],
+      '--runs-per-condition',
+    );
   }
   if (values.mutations) {
-    config.mutations = Math.min(parseInt(values.mutations, 10), 5);
+    config.mutations = parsePositiveIntFlag(values.mutations, '--mutations', { max: 5 });
   }
   if (values['liability-mode']) {
     const mode = values['liability-mode'].replace(/-/g, '_') as LiabilityMode;
@@ -104,7 +126,13 @@ async function main() {
     process.exit(1);
   }
 
-  const config = buildConfig();
+  let config: CampaignConfig;
+  try {
+    config = buildConfig();
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 
   console.log('');
   console.log('  Epistemic Poisoning Simulator');

@@ -26,7 +26,7 @@ function ensureDir(dir: string): void {
 }
 
 function writeJson(filepath: string, data: unknown): void {
-  fs.writeFileSync(filepath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(filepath, JSON.stringify(data, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 }
 
 export function writeRoundTrace(campaignId: string, trace: RoundTrace): string {

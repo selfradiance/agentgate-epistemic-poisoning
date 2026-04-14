@@ -20,7 +20,8 @@ export type RoundStatus =
   | 'valid'
   | 'baseline_unstable'    // clean runs agree <80%
   | 'poisoned_unstable'    // poisoned runs agree <80% while clean stable
-  | 'baseline_error';      // clean majority disagrees with oracle
+  | 'baseline_error'       // clean majority disagrees with oracle
+  | 'poison_too_obvious';  // all mutations score <2 on subtlety rubric
 
 // ============================================================
 // Component results

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { AttributionClassification } from '../eval/types.js';
 
 // ============================================================
@@ -10,11 +11,13 @@ export type LiabilityMode = 'saboteur_only' | 'target_only' | 'both';
 // Identity
 // ============================================================
 
-export interface AgentIdentity {
-  identityId: string;
-  publicKey: string;
-  privateKey: string;
-}
+export const AgentIdentitySchema = z.object({
+  identityId: z.string(),
+  publicKey: z.string(),
+  privateKey: z.string(),
+});
+
+export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
 
 export type AgentRole = 'saboteur' | 'target' | 'resolver';
 
@@ -22,25 +25,31 @@ export type AgentRole = 'saboteur' | 'target' | 'resolver';
 // Bond / action responses
 // ============================================================
 
-export interface LockBondResponse {
-  bondId: string;
-  status: string;
-  expiresAt: string;
-}
+export const LockBondResponseSchema = z.object({
+  bondId: z.string(),
+  status: z.string(),
+  expiresAt: z.string(),
+});
 
-export interface ExecuteActionResponse {
-  actionId: string;
-  status: string;
-  reservedExposure?: number;
-}
+export type LockBondResponse = z.infer<typeof LockBondResponseSchema>;
 
-export interface ResolveActionResponse {
-  actionId: string;
-  outcome: 'success' | 'failed' | 'malicious';
-  refundCents: number;
-  burnedCents: number;
-  slashedCents: number;
-}
+export const ExecuteActionResponseSchema = z.object({
+  actionId: z.string(),
+  status: z.string(),
+  reservedExposure: z.number().optional(),
+});
+
+export type ExecuteActionResponse = z.infer<typeof ExecuteActionResponseSchema>;
+
+export const ResolveActionResponseSchema = z.object({
+  actionId: z.string(),
+  outcome: z.enum(['success', 'failed', 'malicious']),
+  refundCents: z.number(),
+  burnedCents: z.number(),
+  slashedCents: z.number(),
+});
+
+export type ResolveActionResponse = z.infer<typeof ResolveActionResponseSchema>;
 
 // ============================================================
 // Action types used in this simulation

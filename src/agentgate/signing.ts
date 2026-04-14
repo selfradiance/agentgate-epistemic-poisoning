@@ -3,7 +3,7 @@
  * Self-contained — mirrors AgentGate's signing.ts so we don't import across projects.
  */
 
-import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, sign, generateKeyPairSync } from 'node:crypto';
 
 const ED25519_KEY_LENGTH = 32;
 
@@ -65,7 +65,7 @@ export function signRequest(
 }
 
 export function generateKeyPair(): { publicKey: string; privateKey: string } {
-  const { publicKey, privateKey } = require('node:crypto').generateKeyPairSync('ed25519');
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const publicJwk = publicKey.export({ format: 'jwk' });
   const privateJwk = privateKey.export({ format: 'jwk' });
 

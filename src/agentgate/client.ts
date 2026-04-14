@@ -11,10 +11,14 @@ import path from 'node:path';
 import { signRequest, generateKeyPair } from './signing.js';
 import {
   AgentIdentity,
+  AgentIdentitySchema,
   AgentRole,
   LockBondResponse,
+  LockBondResponseSchema,
   ExecuteActionResponse,
+  ExecuteActionResponseSchema,
   ResolveActionResponse,
+  ResolveActionResponseSchema,
 } from './types.js';
 
 // ============================================================
@@ -77,13 +81,17 @@ export class AgentGateClient {
     // Try loading from disk
     try {
       const raw = await fs.promises.readFile(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (parsed.identityId && parsed.publicKey && parsed.privateKey) {
-        this.identities.set(role, parsed as AgentIdentity);
-        return parsed as AgentIdentity;
+      const parsed = AgentIdentitySchema.safeParse(JSON.parse(raw));
+      if (parsed.success) {
+        this.identities.set(role, parsed.data);
+        return parsed.data;
       }
-    } catch {
-      // File doesn't exist — generate fresh keys
+      console.warn(`  AgentGate: Identity file ${filePath} failed validation: ${parsed.error.message} — regenerating`);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        console.warn(`  AgentGate: Unexpected error reading ${filePath}: ${err} — regenerating`);
+      }
     }
 
     // Generate new keypair and register
@@ -146,9 +154,9 @@ export class AgentGateClient {
     }
 
     const result = (await response.json()) as Record<string, unknown>;
-    const identityId = (result.identityId ?? result.id) as string | undefined;
-    if (!identityId) {
-      throw new Error(`POST ${apiPath} succeeded but did not return identityId`);
+    const identityId = result.identityId ?? result.id;
+    if (typeof identityId !== 'string' || identityId.length === 0) {
+      throw new Error(`POST ${apiPath} succeeded but did not return a valid identityId`);
     }
     return identityId;
   }
@@ -176,41 +184,44 @@ export class AgentGateClient {
         body,
       );
 
-      try {
-        const headers: Record<string, string> = {
-          'content-type': 'application/json',
-          'x-agentgate-timestamp': timestamp,
-          'x-agentgate-signature': signature,
-          'x-nonce': nonce,
-        };
-        if (this.restKey) {
-          headers['x-agentgate-key'] = this.restKey;
-        }
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+        'x-agentgate-timestamp': timestamp,
+        'x-agentgate-signature': signature,
+        'x-nonce': nonce,
+      };
+      if (this.restKey) {
+        headers['x-agentgate-key'] = this.restKey;
+      }
 
-        const response = await fetch(new URL(apiPath, this.baseUrl), {
+      let response: Response;
+      try {
+        response = await fetch(new URL(apiPath, this.baseUrl), {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
         });
-
-        if (response.ok) {
-          return (await response.json()) as T;
-        }
-
-        const detail = await parseErrorBody(response);
-        lastError = new Error(`POST ${apiPath} failed: HTTP ${response.status} ${detail}`);
-
-        // Only retry on transient errors
-        if (!isTransientError(response.status)) {
-          throw lastError;
-        }
       } catch (err) {
-        if (err instanceof Error && !err.message.includes('failed: HTTP')) {
-          // Network error — retryable
-          lastError = err;
-        } else {
-          throw err;
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // Only retry when the request never produced an HTTP response.
+        if (attempt < MAX_RETRIES) {
+          await sleep(BASE_DELAY_MS * Math.pow(2, attempt));
+          continue;
         }
+        break;
+      }
+
+      if (response.ok) {
+        return (await response.json()) as T;
+      }
+
+      const detail = await parseErrorBody(response);
+      lastError = new Error(`POST ${apiPath} failed: HTTP ${response.status} ${detail}`);
+
+      // Only retry on transient HTTP errors.
+      if (!isTransientError(response.status)) {
+        throw lastError;
       }
 
       // Exponential backoff before retry
@@ -231,13 +242,18 @@ export class AgentGateClient {
     reason: string,
   ): Promise<LockBondResponse> {
     const identity = await this.ensureIdentity(role);
-    return this.signedPost<LockBondResponse>(identity, '/v1/bonds/lock', {
+    const raw = await this.signedPost<unknown>(identity, '/v1/bonds/lock', {
       identityId: identity.identityId,
       amountCents,
       currency: 'USD',
       ttlSeconds,
       reason,
     });
+    const parsed = LockBondResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(`AgentGate lockBond response validation failed: ${parsed.error.message}`);
+    }
+    return parsed.data;
   }
 
   // ── Action operations ───────────────────────────────────
@@ -250,13 +266,18 @@ export class AgentGateClient {
     exposureCents: number,
   ): Promise<ExecuteActionResponse> {
     const identity = await this.ensureIdentity(role);
-    return this.signedPost<ExecuteActionResponse>(identity, '/v1/actions/execute', {
+    const raw = await this.signedPost<unknown>(identity, '/v1/actions/execute', {
       identityId: identity.identityId,
       actionType,
       payload,
       bondId,
       exposure_cents: exposureCents,
     });
+    const parsed = ExecuteActionResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(`AgentGate executeAction response validation failed: ${parsed.error.message}`);
+    }
+    return parsed.data;
   }
 
   async resolveAction(
@@ -264,7 +285,7 @@ export class AgentGateClient {
     outcome: 'success' | 'failed' | 'malicious',
   ): Promise<ResolveActionResponse> {
     const resolver = await this.ensureIdentity('resolver');
-    return this.signedPost<ResolveActionResponse>(
+    const raw = await this.signedPost<unknown>(
       resolver,
       `/v1/actions/${actionId}/resolve`,
       {
@@ -272,6 +293,11 @@ export class AgentGateClient {
         resolverId: resolver.identityId,
       },
     );
+    const parsed = ResolveActionResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(`AgentGate resolveAction response validation failed: ${parsed.error.message}`);
+    }
+    return parsed.data;
   }
 
   // ── Read-only ───────────────────────────────────────────
